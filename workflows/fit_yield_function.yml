@@ -1,0 +1,195 @@
+name: fit_yield_funcion
+version: 1.2
+authors: A. J. Plowman
+
+description: >
+  This workflow performs virtual materials testing using FFT crystal plasticity (with
+  DAMASK). Experimental texture data is fed in to the workflow to produce an estimated
+  orientation distribution function (ODF), which is then sampled to generate a set of 
+  representative orientations (with MATLAB/MTEX). These orienations are then used to
+  generate a representative volume element for use in the DAMASK simulations.
+  
+  To fit the yield functions, there are two simulation tasks: the first simulates uniaxial
+  tension, and the second simulates a large set of random 3D load cases to sample
+  different regions of principal yield stress space. The uniaxial simulation is used to
+  calculate an "equivalent stress", which is a parameter included in most anisotropic
+  yield functions within the literature. There are two "generate_load_case" tasks, and
+  two corresponding "simulate_volume_element_loading" tasks. The first pair correspond to
+  the uniaxial simulation, and the second to the random 3D load set simulations.
+
+  The yield functions are fitted for three distinct rotation angles defined relative to
+  the rolling direction. For each rotation angle, the yield functions are fitted for two
+  distinct yield points.
+  
+acknowledgments: >
+  This workflow was developed at the University of Manchester with funding from the EPSRC
+  LightForm grant: (EP/R001715/1).
+
+tasks:
+  - name: estimate_ODF
+    method: from_CTF_file
+    software: matlab_mtex
+    run_options:
+      resource: CSF
+    base:
+      CTF_file: "experimental_data/RD-TD Data.ctf"
+
+  - name: sample_texture
+    method: from_ODF
+    software: matlab_mtex
+    run_options:
+      resource: CSF
+    base:
+      num_orientations: 2000
+
+  - name: generate_microstructure_seeds
+    method: random
+    software: damask
+    run_options:
+      resource: CSF
+    base:
+      grid_size: [32, 32, 32]
+      num_grains: 2000
+
+  - name: generate_volume_element
+    method: random_voronoi_from_orientations
+    software: damask
+    run_options:
+      resource: CSF
+    base:
+      size: [1, 1, 1]
+      rescale_size: [1, 1, 2]
+      rescale_grid: [32, 32, 64]
+
+  - name: visualise_volume_element
+    method: VTK
+    software: damask
+    run_options:
+      resource: CSF
+
+  - name: generate_load_case
+    method: uniaxial
+    context: uniaxial
+    run_options:
+      resource: CSF
+    base:
+      total_time: [100]
+      num_increments: [200]
+      target_strain_rate: [1.0e-3]
+      direction: [z]
+    sequences:
+      - name: rotation
+        vals:
+          - {axis: [1, 0, 0], angle_deg: 0}
+          - {axis: [1, 0, 0], angle_deg: 30}
+          - {axis: [1, 0, 0], angle_deg: 60}
+          - {axis: [1, 0, 0], angle_deg: 90}    
+
+  - name: generate_load_case
+    method: random_3d
+    context: random_3d
+    run_options:
+      resource: CSF
+    base:
+      total_time: [100]
+      num_increments: [200]
+      target_strain: [1.0e-1]
+    sequences:
+      - name: rotation
+        vals:
+          - {axis: [1, 0, 0], angle_deg: 0}
+          - {axis: [1, 0, 0], angle_deg: 30}
+          - {axis: [1, 0, 0], angle_deg: 60}
+          - {axis: [1, 0, 0], angle_deg: 90}
+    num_repeats: 50    
+    groups:
+      random_3d:
+        group_by: [rotation]
+
+  - name: simulate_volume_element_loading
+    method: CP_FFT
+    context: uniaxial
+    software: damask
+    run_options:
+      resource: CSF
+    base:
+      material_properties:
+        homogenization:
+          - name: SX
+            keys: 
+              mech: none
+        crystallite:
+          - name: almostAll
+            outputs: [F, P]
+        phase:
+          - name: Aluminium_phenopowerlaw
+            keys:
+              elasticity: hooke
+              plasticity: phenopowerlaw
+              lattice_structure: fcc
+              Nslip: 12
+              Ntwin: 0
+              c11: 106.75e9
+              c12: 60.41e9
+              c44: 28.34e9
+              gdot0_slip: 0.001
+              n_slip: 20
+              tau0_slip: 22e6    
+              tausat_slip: 129e6 
+              a_slip: 2.25
+              h0_slipslip: 573e6
+              interaction_slipslip: 1 1 1.4 1.4 1.4 1.4
+              atol_resistance: 1
+            outputs: [F, P, Fp]
+      
+  - name: simulate_volume_element_loading
+    method: CP_FFT
+    context: random_3d
+    software: damask
+    run_options:
+      resource: CSF
+    base:
+      material_properties:
+        homogenization:
+          - name: SX
+            keys: 
+              mech: none
+        crystallite:
+          - name: almostAll
+            outputs: [F, P]
+        phase:
+          - name: Aluminium_phenopowerlaw
+            keys:
+              elasticity: hooke
+              plasticity: phenopowerlaw
+              lattice_structure: fcc
+              Nslip: 12
+              Ntwin: 0
+              c11: 106.75e9
+              c12: 60.41e9
+              c44: 28.34e9
+              gdot0_slip: 0.001
+              n_slip: 20
+              tau0_slip: 22e6    
+              tausat_slip: 129e6 
+              a_slip: 2.25
+              h0_slipslip: 573e6
+              interaction_slipslip: 1 1 1.4 1.4 1.4 1.4
+              atol_resistance: 1
+            outputs: [F, P, Fp]
+
+  - name: fit_yield_function
+    method: formable
+    software: formable
+    run_options:
+      resource: CSF
+    base:
+      name: Barlat_Yld2000_2D
+    sequences:
+      - name: yield_point_criteria:
+        vals:
+          - threshold: equivalent_plastic_strain
+            values: 1.0e-3
+          - threshold: equivalent_plastic_strain
+            values: 5.0e-3
+

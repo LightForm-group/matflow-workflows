@@ -1,0 +1,25 @@
+current_machine: CSF
+
+resources:
+  - name: CSF
+    machine: CSF
+    base_path: /mnt/lustre/<username>/
+
+machines:
+  - name: CSF
+    os_type: posix
+
+software:
+
+  matlab_mtex:
+    - machine: CSF
+      version: 5.1.1
+      num_cores: [1, 1, 1]
+      scheduler: SGE
+
+  damask:
+    - machine: CSF
+      version: 2.0.3-1097-ga7fca4df
+      num_cores: [1, 32, 1]
+      scheduler: SGE
+      sources: [/mnt/eps01-rds/jf01-home01/shared/load_DAMASK_processing.sh]
